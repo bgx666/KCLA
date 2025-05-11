@@ -71,3 +71,11 @@ CUDA_VISIBLE_DEVICES=0,1 python tools/train.py configs/faster_rcnn/faster_rcnn_r
       - .png
     - masks
       - .png
+      
+You can find the configuration files in the './configs' folder and adjust relevant hyperparameters and other settings.
+
+To train the model, please execute the following command:
+
+```bash
+python train.py
+```

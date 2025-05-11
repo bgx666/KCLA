@@ -12,38 +12,32 @@ from mmdet.registry import MODELS
 from mmengine.model import BaseModule
 
 class kcla_layer(nn.Module):
-    def __init__(self,in_channel,sv_channel,heads=None,init_layer=False,stride=1,padding=0,kernel_size=1,drop_path=0.2,cross_layer=True,conv_adjust=True,usegate=True):
+    def __init__(self,in_channel,u_channel,heads=None,init_layer=False,stride=1,padding=0,kernel_size=1,drop_path=0.2):
         super().__init__()
 
         if heads!=None:
             self.heads=heads
             self.head= in_channel//self.heads
         else:
-            self.head=32
+            self.head=64
             self.heads=in_channel//self.head
-        print('in_channel:',in_channel,'head:',self.head,'heads:',self.heads)    
         
         self.init_layer=init_layer
-        self.cross_layer=cross_layer
-        self.conv_adjust=conv_adjust
-        self.usegate=usegate
-        self.sv_channel=sv_channel
+        self.u_channel=u_channel
 
         t = int(abs((log(in_channel, 2) + 1) / 2.))
         k_size = t if t % 2 else t + 1
         self.k_size = k_size
 
         if self.init_layer:
-            self.adjust_channel=nn.Sequential(
-                    nn.Conv2d(sv_channel,in_channel,kernel_size=1,stride=2,padding=0,groups=self.heads,bias=False),
-                )
-            self.memWk=nn.Conv1d(1,
+            self.adjust_channel=nn.Conv2d(u_channel,in_channel,kernel_size=1,stride=stride,padding=0,groups=self.heads,bias=False)
+            self.u_Wk=nn.Conv1d(1,
                                 1,
                                 kernel_size=k_size,
                                 padding=(k_size - 1) // 2,
                                 bias=False)
-            nn.init.xavier_uniform_(self.memWk.weight)
-            self.membn=nn.BatchNorm2d(in_channel)
+            nn.init.xavier_uniform_(self.u_Wk.weight)
+            self.u_bn=nn.BatchNorm2d(in_channel)
         self.drop_path=DropPath(drop_path)
         self._norm_fact = 1 / sqrt(self.head)
         self.bn_attention=nn.BatchNorm2d(in_channel)
@@ -70,77 +64,64 @@ class kcla_layer(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.avg_pool2 = nn.AvgPool2d(kernel_size=2,stride=2)
 
-        self.select_temp=nn.Linear(self.heads,self.heads,bias=False)
-        nn.init.xavier_uniform_(self.select_temp.weight)
+        self.head_att=nn.Linear(self.heads,self.heads,bias=False)
+        nn.init.xavier_uniform_(self.head_att.weight)
 
-        sqd = sqrt(self.head)
-        start=0.7
-        log_start = math.log(start) 
-        log_end = math.log(1/start) 
-        log_points1 = torch.linspace(log_start, log_end, self.heads)
-        self.norm_d = nn.Parameter((torch.exp(log_points1)*sqd).view(1,self.heads,1,1,1),requires_grad=False)
+        sequence = torch_log_uniform_sequence(0.7, 1/0.7, self.heads)
+        self.norm_d = nn.Parameter(1/sequence.view(1,self.heads,1,1,1),requires_grad=False)
     
     def forward(self,x,info=None):
         b,c,h,w=x.shape
         
         if info is None:
-            pre_we_x=None
+            u=None
             key_direction=None
-            mem_norm=None
+            z=None
         else:
-            pre_we_x,key_direction,mem_norm=info
-            if pre_we_x is not None: 
-                #还原形状
-                if len(pre_we_x.shape) != 4:
-                    _b,_g,_d,_h,_w=pre_we_x.shape
+            u,key_direction,z=info
+            if u is not None: 
+                if len(u.shape) != 4:
+                    _b,_g,_d,_h,_w=u.shape
                 else:
-                    _b,_g,_h,_w=pre_we_x.shape
+                    _b,_g,_h,_w=u.shape
                     _d=1
                 if self.init_layer:
-                    pre_we_x=(pre_we_x/mem_norm).view(_b,-1,_h,_w)
+                    u=(u/z).view(_b,-1,_h,_w)
                     if _d*_g!=c:
-                        pre_we_x = self.adjust_channel(pre_we_x)
-                    pre_we_x=self.membn(pre_we_x)
-                    memk = self.memWk(self.avg_pool(pre_we_x).view(b,1,c)).view(b,self.heads,self.head,1,1) # K: [b, 1, c]
-                    mem_norm=torch.exp(torch.clamp(torch.norm(memk,dim=2,keepdim=True)/self.norm_d, max=10))
-                    pre_we_x=pre_we_x.view(b,self.heads,self.head,h,w)*mem_norm
+                        u = self.adjust_channel(u)
+                    u=self.u_bn(u)
+                    u_k = self.u_Wk(self.avg_pool(u).view(b,1,c)).view(b,self.heads,self.head,1,1) # K: [b, 1, c]
+                    z=torch.exp(torch.clamp(torch.norm(u_k,dim=2,keepdim=True)/self.norm_d, max=10))
+                    u=u.view(b,self.heads,self.head,h,w)*z
                     key_direction=None
-                pre_we_x = pre_we_x.view(b,self.heads,self.head,h,w)
+                u = u.view(b,self.heads,self.head,h,w)
         q = self.avg_pool(x) # [b, c, 1, 1]
         Q = self.Wq(q.view(b,1,c)).view(b,self.heads,self.head,1,1)
         K = self.Wk(q.view(b,1,c)).view(b,self.heads,self.head,1,1) # K: [b, 1, c]
 
-        #更新key的方向
         if key_direction == None:
             key_direction = K
         else:
             key_direction = key_direction + K
 
-        #计算当前层key的模
-        k_norm=torch.norm(K,dim=2,keepdim=True)/self.norm_d
-        k_norm = torch.clamp(k_norm, max=10)  # 将k_norm的值限制在0到10之间
-        cur_k_norm=torch.exp(k_norm)
-
-        #将当前层的信息更新到pre_we_x中
-        if pre_we_x == None:
-            kvbinding = cur_k_norm*x.view(b,self.heads,self.head,h,w)
-            mem_norm = cur_k_norm
+        k_norm=torch.norm(K,dim=2,keepdim=True)
+        cur_k_norm=torch.exp(torch.clamp(k_norm/self.norm_d, max=10))
+        if u == None:
+            u_next = cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            z = cur_k_norm
         else:
-            kvbinding = pre_we_x + cur_k_norm*x.view(b,self.heads,self.head,h,w)
-            mem_norm = mem_norm + cur_k_norm 
+            u_next = u + cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            z = z + cur_k_norm 
         
-        #归一化目前的序列和
-        we_sequence=kvbinding/(mem_norm+1e-3)
+        we_sequence=u_next/(z+1e-3)
         output = self.Wv(we_sequence.view(b,c,h,w))
         
-        #计算q_cos
-        key_direction_norm = F.normalize(key_direction, p=2, dim=2)
-        q_proj = torch.einsum('bhcij,bhcij->bhij', Q, key_direction_norm)
-        q_proj = self.select_temp(q_proj.view(b,self.heads)).view(b,self.heads,1,1,1)
-        output = (F.sigmoid(q_proj)*output.view(b,self.heads,self.head,h,w)).view(b,c,h,w)
+        h_att = torch.einsum('bhcij,bhcij->bhij', Q, K)/k_norm.view(b,self.heads,1,1)
+        h_att = self.head_att(h_att.view(b,self.heads)).view(b,self.heads,1,1,1)
+        output = (F.sigmoid(h_att)*output.view(b,self.heads,self.head,h,w)).view(b,c,h,w)
         output = self.drop_path(F.relu(self.bn_attention(output)))
 
-        return output,[kvbinding,key_direction,mem_norm]
+        return output,[u_next,key_direction,z]
 
 
 

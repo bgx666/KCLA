@@ -13,7 +13,7 @@ model = dict(
         frozen_stages=1,
         norm_eval=True,
         style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='./pretrained/77.78-KCLA-50.pth.tar')),
+        init_cfg=dict(type='Pretrained', checkpoint='./pretrained/')),
     neck=dict(
         type='FPN',
         in_channels=[256, 512, 1024, 2048],

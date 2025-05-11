@@ -49,19 +49,16 @@ def torch_log_uniform_sequence(start, stop, num):
 
 
 class kcla_layer(nn.Module):
-    def __init__(self,in_channel,sv_channel,heads=None,init_layer=False,stride=1,padding=0,kernel_size=1,drop_path=0.2,cross_layer=True,conv_adjust=True,usegate=True):
+    def __init__(self,in_channel,sv_channel,heads=None,init_layer=False,stride=1,padding=0,kernel_size=1,drop_path=0.2):
         super().__init__()
 
         if heads!=None:
             self.heads=heads
-            self.dkeysize= in_channel//self.heads
+            self.head= in_channel//self.heads
         else:
-            self.dkeysize= 16
-            self.heads=in_channel//self.dkeysize
+            self.head= 16
+            self.heads=in_channel//self.head
         
-        self.init_layer=init_layer
-        self.cross_layer=cross_layer
-        self.conv_adjust=conv_adjust
         self.usegate=usegate
         self.sv_channel=sv_channel
         if self.init_layer and self.sv_channel!=None:
@@ -72,7 +69,7 @@ class kcla_layer(nn.Module):
                 )
 
         self.drop_path=DropPath(drop_path)
-        self._norm_fact = 1 / sqrt(self.dkeysize)
+        self._norm_fact = 1 / sqrt(self.head)
         self.bn_attention=nn.BatchNorm2d(in_channel)
         t = int(abs((log(in_channel, 2) + 1) / 2.))
         k_size = t if t % 2 else t + 1
@@ -97,67 +94,63 @@ class kcla_layer(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.avg_pool2 = nn.AvgPool2d(kernel_size=2,stride=2)
         sequence = torch_log_uniform_sequence(0.7, 1/0.7, self.heads)
-        print(sequence)
         self.norm_d = nn.Parameter(1/sequence.view(1,self.heads,1,1,1),requires_grad=False)
 
-    def forward(self,x,info=None,normd=None):
+    def forward(self,x,info=None):
         if info is None:
-            kvpre=None
+            u=None
             pre_k_norm=None
-            mem_norm=None
+            z=None
         else:
-            kvpre,pre_k_norm,mem_norm=info
+            u,pre_k_norm,z=info
 
         b,c,h,w=x.shape
-        # 如果输入的x的宽度与kvpre的宽度不一致，则需要对mem进行处理
-        if self.init_layer and kvpre is not None:
+        if self.init_layer and u is not None:
             if self.cross_layer:
-                _b,_g,_head,_h,_w=kvpre.shape
-                kvpre=(kvpre/mem_norm).view(_b,_g*_head,_h,_w)
+                _b,_g,_head,_h,_w=u.shape
+                u=(u/z).view(_b,_g*_head,_h,_w)
                 if self.conv_adjust:
-                    kvpre=self.adjust_channel(kvpre)
+                    u=self.adjust_channel(u)
                 else:
-                    kvpre=self.avg_pool2(kvpre).repeat_interleave(2,dim=1)
-                pre_k=self.Wk(self.avg_pool(kvpre).view(b,1,c)).view(_b,self.heads,self.dkeysize,1,1)
+                    u=self.avg_pool2(u).repeat_interleave(2,dim=1)
+                pre_k=self.Wk(self.avg_pool(u).view(b,1,c)).view(_b,self.heads,self.head,1,1)
                 pre_k_norm=torch.exp(torch.clamp(torch.norm(pre_k,p=2,dim=2,keepdim=True)*self.norm_d, max=10))
-                mem_norm=pre_k_norm
-                kvpre=kvpre.view(b,self.heads,self.dkeysize,h,w)*pre_k_norm
+                z=pre_k_norm
+                u=u.view(b,self.heads,self.head,h,w)*pre_k_norm
             else:
-                kvpre=None
+                u=None
                 pre_k_norm=None
-                mem_norm=None
+                z=None
 
         q = self.avg_pool(x) # [b, c, 1, 1]
         Q = self.Wq(q.view(b,1,c)) # Q: [b, 1, c]
         K = self.Wk(q.view(b,1,c)) # K: [b, 1, c]
 
-        #计算当前的k的norm
         cur_k=K.view(b,self.heads,-1,1,1)
         k_norm=torch.norm(cur_k, p=2, dim=2, keepdim=True)
         cur_k_norm=torch.exp(torch.clamp(k_norm*self.norm_d, max=10))
     
-        if kvpre!=None:  
-            #lambda_= pre_k_norm/(cur_k_norm)
-            kvbinding = kvpre+cur_k_norm*x.view(b,self.heads,self.dkeysize,h,w)
-            mem_norm = mem_norm+cur_k_norm
-            token_x=(kvbinding/mem_norm).view(b,c,h,w)
+        if u!=None:  
+            kvbinding = u+cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            z = z+cur_k_norm
+            token_x=(kvbinding/z).view(b,c,h,w)
         else:
             token_x=x
-            kvbinding=cur_k_norm*x.view(b,self.heads,self.dkeysize,h,w)
-            mem_norm=cur_k_norm
+            kvbinding=cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            z=cur_k_norm
 
         V=self.Wv(token_x)
-        Q=Q.view(b,c//self.dkeysize,1,self.dkeysize) #[b, g, c/g, 1, 1, 1]
-        K=K.view(b,c//self.dkeysize,1,self.dkeysize) #[b, g, c/g, 1, 1, 1]
-        V=V.view(b,c//self.dkeysize,self.dkeysize,h,w)  # (b,g,1,c/g or dkey,h,w)   
+        Q=Q.view(b,c//self.head,1,self.head) #[b, g, c/g, 1, 1, 1]
+        K=K.view(b,c//self.head,1,self.head) #[b, g, c/g, 1, 1, 1]
+        V=V.view(b,c//self.head,self.head,h,w)  # (b,g,1,c/g or dkey,h,w)   
 
         attn = torch.einsum('... i d, ... j d -> ... i j', Q, K)/k_norm.view(b,self.heads,1,1)
         attn = F.sigmoid(attn) # [b, g, 1, 1, 1]
-        output = V * attn.view(b, c//self.dkeysize, 1, 1, 1).expand_as(V) # [b, g, c/g, h, w]
+        output = V * attn.view(b, c//self.head, 1, 1, 1).expand_as(V) # [b, g, c/g, h, w]
         output = output.view(b, c, h, w)
         output = self.drop_path(self.bn_attention(output))
 
-        return output,[kvbinding,cur_k_norm,mem_norm]
+        return output,[kvbinding,cur_k_norm,z]
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):

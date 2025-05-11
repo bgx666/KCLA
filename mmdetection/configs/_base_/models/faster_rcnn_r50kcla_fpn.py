@@ -8,11 +8,11 @@ model = dict(
         pad_size_divisor=32),
     backbone=dict(
         type='ResNet_kcla', 
-        layers=[3, 4, 23, 3],
+        layers=[3, 4, 6, 3],
         frozen_stages=1,
         norm_eval=True,
         style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='./pretrained/78.82-KCLA-101.pth.tar')
+        init_cfg=dict(type='Pretrained', checkpoint='./pretrained/')
     ),
     neck=dict(
         type='FPN',

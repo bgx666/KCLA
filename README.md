@@ -53,9 +53,6 @@ CUDA_VISIBLE_DEVICES=0,1 python tools/train.py configs/faster_rcnn/faster_rcnn_r
 
 ### Image segmentation experiment
 
-
-**1. Prepare the dataset.**
-
 - Before conducting image segmentation experiments, it is first necessary to download the three datasets: ISIC2017, ISIC2018, and Kvasir - SEG.
 
 - After successfully downloading these datasets, for the convenience of subsequent experimental operations, they need to be placed in the './data' folder within the project directory. The following is a reference example of the file format, taking the ISIC17 dataset as an example:
@@ -71,10 +68,10 @@ CUDA_VISIBLE_DEVICES=0,1 python tools/train.py configs/faster_rcnn/faster_rcnn_r
       - .png
     - masks
       - .png
-      
-You can find the configuration files in the './configs' folder and adjust relevant hyperparameters and other settings.
 
-To train the model, please execute the following command:
+- You can find the configuration files in the './configs' folder and adjust relevant hyperparameters and other settings.
+
+- To train the model, please execute the following command:
 
 ```bash
 python train.py

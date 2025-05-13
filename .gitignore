@@ -82,5 +82,5 @@ test_results/
 # Pre-trained models
 pre_trained/
 
-# Data files
-data/
+# # Data files
+# data/

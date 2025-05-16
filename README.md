@@ -84,5 +84,6 @@ We would like to thank the following open-source projects:
 - [EGE-UNet](https://github.com/JCruan519/EGE-UNet) for medical image segmentation training framework
 - [MMDetection](https://github.com/open-mmlab/mmdetection) for object detection implementation
 - [Dynamic-Layer-Attention](https://github.com/tunantu/Dynamic-Layer-Attention) for CIFAR-10/100 training framework
+- [MRLA](https://github.com/joyfang1106/MRLA) for CIFAR-10/100 and ImageNet-1K training framework
 
 

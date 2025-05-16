@@ -6,10 +6,8 @@ from math import log
 from einops import rearrange
 import math
 import torch.nn.functional as F
-import os
 
-__all__ = ['layer_attention']
-
+__all__ = ['linear_attention']
 
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
@@ -31,9 +29,104 @@ class DropPath(nn.Module):
         return drop_path(x, self.drop_prob, self.training)
 
 
-class mrla_base_layer(nn.Module):
+
+class linear_gla(nn.Module):
+    '''
+    Linear Groupwise Layer Attention
+    '''
+    def __init__(self, input_dim, feature_map=None, eps=1e-6, k_size=None, 
+                 groups=None, dim_perhead=None):
+        super(linear_gla, self).__init__()
+        query_dimensions = input_dim
+        
+        if (groups == None) and (dim_perhead == None):
+            raise ValueError("arguments groups and dim_perhead cannot be None at the same time !")
+        elif dim_perhead != None:
+            groups = int(input_dim / dim_perhead)
+        else:
+            groups = groups
+        self.groups = groups
+        self.dim_perhead = dim_perhead
+        
+        # self.feature_map = (
+        #     feature_map(query_dimensions) if feature_map else
+        #     elu_feature_map(query_dimensions)
+        # )
+        self.eps = eps
+        # self.event_dispatcher = EventDispatcher.get(event_dispatcher)
+        if k_size == None:
+            t = int(abs((log(input_dim, 2) + 1) / 2.))
+            k_size = t if t % 2 else t+1
+        
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.Wq = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
+        self.Wk = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
+        self.Wv = nn.Conv2d(input_dim, input_dim, kernel_size=3, stride=1, padding=1, groups=input_dim, bias=False) 
+        
+    #     self.reset_params()
+        
+    # def reset_params(self):
+    #     nn.init.kaiming_normal_(self.Wv, mode='fan_out', nonlinearity='relu')
+
+    def forward(self, x, s, z):
+        """
+        Q: [b, 1, c]
+        K: [b, 1, c]
+        V: [b, c, h, w]
+        
+        s <-- s + feature_map(K)V'
+        z <-- z + feature_map(K)
+        
+        out <-- (feature_map(Q)s) / (feature_map(Q)z)
+        """
+        # x: input features with shape [b, c, h, w]
+        b, c, h, w = x.size()
+        # feature descriptor on the global spatial information
+        y = self.avg_pool(x) # [b, c, 1, 1]
+        y = y.squeeze(-1).transpose(-1, -2) # [b, 1, c]
+        
+        Q = self.Wq(y) # Q: [b, 1, c] 
+        K = self.Wk(y) # K: [b, 1, c]
+        V = self.Wv(x) # V: [b, c, h, w]
+        V = V.view(b, 1, c, h*w) # V: [b, 1, c, hw]
+        
+        # Apply the feature map to the queries and keys
+        # self.feature_map.new_feature_map()
+        # Q = self.feature_map.forward_queries(Q)
+        # K = self.feature_map.forward_keys(K)
+        Q = F.elu(Q)+1
+        K = F.elu(K)+1
+        
+        g = self.groups
+        Q = Q.view(b, 1, g, int(c/g))
+        K = K.view(b, 1, g, int(c/g))
+        V = V.view(b, 1, g, int(c/g), h*w) # g heads (groups)
+
+        # Compute the KV matrix, namely the dot product of keys and values so
+        # that we never explicitly compute the attention matrix and thus
+        # decrease the complexity
+        # let d=hw, t=1, c=c/g (Q, K), g=g, s=c/g (V)
+        KV = torch.einsum('btgc, btgsd -> bgcsd', K, V) # [b, g, c/g, c/ghw], [b, g, c/g, c/g, hw]
+        if s==None:
+            s = KV
+            z = K
+        else:
+            s = s + KV
+            # Compute the normalizer
+            z = z + K # [b, 1, g, c/g]
+        QZ = 1.0 / torch.einsum('btgc, btgc -> btg', Q, z+self.eps) # [b, 1, g]
+        # Finally compute and return the new values
+        out = torch.einsum("btgc, bgcsd, btg -> btgsd", Q, s, QZ) # [b, 1, g, c/g, hw]
+        out = out.contiguous().view(b, 1, c, h*w) # [b, 1, c, hw]
+        out = out.view(b, c, h, w)
+        
+        return out, s, z
+
+
+
+class linear_la_layer(nn.Module):
     def __init__(self, input_dim, heads=None, dim_perhead=None, k_size=None, init_cell=False):
-        super(mrla_base_layer, self).__init__()
+        super(linear_la_layer, self).__init__()
         self.input_dim = input_dim
         self.init_cell = init_cell
         
@@ -67,7 +160,6 @@ class mrla_base_layer(nn.Module):
         if self.init_cell:
             K = y # K: [b, 1, c]
             V = x.unsqueeze(1) # V: [b, 1, c, h, w]
-            
         else:        
             K = torch.cat((prev_K, y), dim=1) # K: [b, t, c]
             V = torch.cat((prev_V, x.unsqueeze(1)), dim=1) # V: [b, t, c, h, w]
@@ -77,21 +169,19 @@ class mrla_base_layer(nn.Module):
         Q = self.Wq(y) # Q: [b, 1, c] 
         K = self.Wk(K.view(-1,1,c)).view(b,-1,c) # k: [b, 1, c]
         V = self.Wv(V.view(-1,c,h,w)).view(b,-1,c,h,w) # v: [b, c, h, w]
-      
+
         Q = Q.view(b, self.heads, 1, int(c/self.heads)) # [b, g, 1, c/g]
         K = rearrange(K, 'b t (g d) -> b g t d', b=b, g=self.heads, d=int(c/self.heads)) # [b, g, t, c/g]
-        V = rearrange(V, 'b t (g d) h w -> b g t d h w', g=self.heads, d=int(c/self.heads)) # [b, g, t, c/g, h, w]
-        atten = torch.einsum('... i d, ... j d -> ... i j', Q, K) * self._norm_fact
-        atten = self.softmax(atten)
+        V = rearrange(V, 'b t (g d) h w -> b g t (d h w)', g=self.heads, d=int(c/self.heads)) # [b, g, t, d*h*w]
+
+        Q = F.elu(Q)+1
+        K = F.elu(K)+1
         
-        V = rearrange(V, 'b g t d h w -> b g t (d h w)')
-    
-        # output = atten @ V # [b g 1 (c/g h w)]
-        output = torch.einsum('bgit, bgtj -> bgij', atten, V) 
-        output = output.unsqueeze(2).reshape(b, c, h, w)
+        context = torch.einsum('bgtd,bgte->bgde', K, V)  # [b, g, d, e]
+        output = torch.einsum('bgid,bgde->bgie', Q, context)  # [b, g, 1, e]
+        output = output.reshape(b, c, h, w)
 
         return output, output_K, output_V
-
 
 
 
@@ -102,12 +192,13 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 
 class mrla_module(nn.Module):
-    dim_perhead = 16     #default 16     2025/2/24 16->32  
+    dim_perhead = 8  
     def __init__(self, input_dim, init_cell=False, channel_wise=False):
         super(mrla_module, self).__init__()
         if channel_wise:
             self.dim_perhead = 1
-        self.mrla = mrla_base_layer(input_dim=input_dim, dim_perhead=self.dim_perhead, init_cell=init_cell) 
+        #linear_la_layer 
+        self.mrla = linear_la_layer(input_dim, dim_perhead=self.dim_perhead,init_cell=init_cell)  #,init_cell=init_cell
         self.init_cell = init_cell
         
     def forward(self, xt, prev_k, prev_v):
@@ -116,43 +207,6 @@ class mrla_module(nn.Module):
            prev_v = None 
         out, kt, vt = self.mrla(xt, prev_k, prev_v)
         return out, kt, vt
-
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, init_cell=False, drop_path = 0.0):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-        self.mrla = mrla_module(input_dim= planes*self.expansion,init_cell=init_cell)
-        self.bn_mrla = nn.BatchNorm2d(planes * self.expansion)
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-    def forward(self, x, prev_k, prev_v):
-        residual = x
-
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        out = out + residual
-        out = self.relu(out)
-        attn_t, k, v = self.mrla(out, prev_k, prev_v)
-        attn_t = self.bn_mrla(attn_t)
-        #attn_t = self.relu(attn_t)
-        out = out + self.drop_path(attn_t)
-
-        return out, k, v
 
 
 
@@ -174,7 +228,6 @@ class Bottleneck(nn.Module):
         self.mrla = mrla_module(input_dim= planes*self.expansion,init_cell=init_cell)
         self.bn_mrla = nn.BatchNorm2d(planes * self.expansion)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-
     def forward(self, x, prev_k, prev_v):
         residual = x
 
@@ -195,7 +248,7 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
         attn_t, k, v = self.mrla(out, prev_k, prev_v)
         attn_t = self.bn_mrla(attn_t)
-        attn_t = self.relu(attn_t)
+        #attn_t = self.relu(attn_t)
         out = out + self.drop_path(attn_t)
         return out, k, v
 
@@ -221,7 +274,6 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(16)
-        #self.final_bn = nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
         
         stages = [None]*3
@@ -265,42 +317,21 @@ class ResNet(nn.Module):
         k = None
         v = None
         
-        # # 检查文件是否存在，如果不存在则创建
-        # cos_sim_path=os.path.join('/root/xiongjianlong/workspace/Dynamic-Layer-Attention/image_classification/cifar/checkpoints/layer_attention/depth_56/run_1', 'cosine_similarity.txt')
-        
-        # if not os.path.exists(cos_sim_path):
-        #     with open(cos_sim_path, 'w') as f:
-        #         pass
-            
-
-        for index, layers in enumerate(self.stages):
+        for layers in self.stages:
+            k = None
+            v = None
             for layer in layers:
                 x, k, v = layer(x, k, v)
-
-            # # 计算余弦相似度
-            # if k is not None and k.size(1) > 1:  # 确保有多个时间步
-            #     # 归一化
-            #     k_norm = F.normalize(k, p=2, dim=-1)
-            #     # 计算相邻时间步的余弦相似度
-            #     cos_sim = torch.einsum('btc,buc->btu', k_norm[:, :-1, :], k_norm[:, 1:, :]).diagonal(dim1=1, dim2=2)
-                
-            #     # 将每个余弦相似度写入文件
-            #     with open(cos_sim_path, 'a') as f:
-            #         for batch_sims in cos_sim:  # 遍历批次
-            #             for sim in batch_sims:  # 遍历时间步
-            #                 f.write(f'{sim.item()}\n')
-            
         return x
     def forward(self, x):
         x = self.forward_features(x)
-        #x = self.final_bn(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
 
         return x
 
-def layer_attention(**kwargs):
+def linear_attention(**kwargs):
     """
     Constructs a ResNet model.
     """

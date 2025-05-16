@@ -38,6 +38,13 @@ class DropPath(nn.Module):
     def forward(self, x):
         return drop_path(x, self.drop_prob, self.training)
 
+def torch_log_uniform_sequence(start, stop, num):
+    start_log = torch.log(torch.tensor(float(start)))
+    stop_log = torch.log(torch.tensor(float(stop)))
+    log_values = torch.linspace(start_log, stop_log, num)
+    return torch.exp(log_values)
+
+
 class kcla_layer(nn.Module):
     def __init__(self,in_channel,u_channel,heads=None,init_layer=False,stride=1,padding=0,kernel_size=1,drop_path=0.2):
         super().__init__()
@@ -46,7 +53,7 @@ class kcla_layer(nn.Module):
             self.heads=heads
             self.head= in_channel//self.heads
         else:
-            self.head=64
+            self.head=16
             self.heads=in_channel//self.head
         
         self.init_layer=init_layer
@@ -167,7 +174,7 @@ class Bottleneck(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.kcla=kcla_layer(planes * 4,sv_channel=planes * 2,heads=None,init_layer=init_cell,stride=2,padding=0,kernel_size=1,drop_path=0.2)
+        self.kcla=kcla_layer(planes * 4,planes * 2,heads=None,init_layer=init_cell,stride=2,padding=0,kernel_size=1,drop_path=0.2)
         self.avgpool2= nn.AvgPool2d(kernel_size=2, stride=2)
 
     def forward(self, x,info=None):

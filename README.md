@@ -76,3 +76,13 @@ CUDA_VISIBLE_DEVICES=0,1 python tools/train.py configs/faster_rcnn/faster_rcnn_r
 ```bash
 python train.py
 ```
+
+## Acknowledgements
+
+We would like to thank the following open-source projects:
+
+- [EGE-UNet](https://github.com/JCruan519/EGE-UNet) for medical image segmentation training framework
+- [MMDetection](https://github.com/open-mmlab/mmdetection) for object detection implementation
+- [Dynamic-Layer-Attention](https://github.com/tunantu/Dynamic-Layer-Attention) for CIFAR-10/100 training framework
+
+

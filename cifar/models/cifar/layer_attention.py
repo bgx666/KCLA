@@ -221,7 +221,6 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(16)
-        #self.final_bn = nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
         
         stages = [None]*3
@@ -264,36 +263,15 @@ class ResNet(nn.Module):
         x = self.relu(x)
         k = None
         v = None
-        
-        # # 检查文件是否存在，如果不存在则创建
-        # cos_sim_path=os.path.join('/root/xiongjianlong/workspace/Dynamic-Layer-Attention/image_classification/cifar/checkpoints/layer_attention/depth_56/run_1', 'cosine_similarity.txt')
-        
-        # if not os.path.exists(cos_sim_path):
-        #     with open(cos_sim_path, 'w') as f:
-        #         pass
             
 
         for index, layers in enumerate(self.stages):
             for layer in layers:
                 x, k, v = layer(x, k, v)
-
-            # # 计算余弦相似度
-            # if k is not None and k.size(1) > 1:  # 确保有多个时间步
-            #     # 归一化
-            #     k_norm = F.normalize(k, p=2, dim=-1)
-            #     # 计算相邻时间步的余弦相似度
-            #     cos_sim = torch.einsum('btc,buc->btu', k_norm[:, :-1, :], k_norm[:, 1:, :]).diagonal(dim1=1, dim2=2)
-                
-            #     # 将每个余弦相似度写入文件
-            #     with open(cos_sim_path, 'a') as f:
-            #         for batch_sims in cos_sim:  # 遍历批次
-            #             for sim in batch_sims:  # 遍历时间步
-            #                 f.write(f'{sim.item()}\n')
             
         return x
     def forward(self, x):
         x = self.forward_features(x)
-        #x = self.final_bn(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)

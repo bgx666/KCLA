@@ -2,9 +2,6 @@ import torch
 from torch import nn
 from torch.nn.parameter import Parameter
 
-
-# from .se_module import SELayer
-# https://github.com/moskomule/senet.pytorch/blob/master/senet/se_module.py
 class SELayer(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SELayer, self).__init__()

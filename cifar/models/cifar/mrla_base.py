@@ -92,7 +92,7 @@ def conv3x3(in_planes, out_planes, stride=1):
                      padding=1, bias=False)
 
 class mrla_module(nn.Module):
-    dim_perhead = 16        #default 16     2025/2/24 16->32  
+    dim_perhead = 16    
     def __init__(self, input_dim, init_cell=False, channel_wise=False):
         super(mrla_module, self).__init__()
         if channel_wise:
@@ -210,7 +210,6 @@ class ResNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(16)
-        self.finalbn=nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
         
         stages = [None]*3
@@ -257,7 +256,6 @@ class ResNet(nn.Module):
         return x
     def forward(self, x):
         x = self.forward_features(x)
-        #x = self.finalbn(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)

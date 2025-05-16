@@ -13,15 +13,6 @@ __all__ = [
            ]
 
 def drop_path(x, drop_prob: float = 0., training: bool = False):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-
-    This is the same as the DropConnect impl I created for EfficientNet, etc networks, however,
-    the original name is misleading as 'Drop Connect' is a different form of dropout in a separate paper...
-    See discussion: https://github.com/tensorflow/tpu/issues/494#issuecomment-532968956 ... I've opted for
-    changing the layer and argument names to 'drop path' rather than mix DropConnect as a layer name and use
-    'survival rate' as the argument.
-
-    """
     if drop_prob == 0. or not training:
         return x
     keep_prob = 1 - drop_prob
@@ -33,8 +24,6 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
 
 
 class DropPath(nn.Module):
-    """Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
-    """
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -394,55 +383,6 @@ def resnet18_kcla(**kwargs):
 
 if __name__ == '__main__':
     model = resnet101_kcla().cuda()
-    
-    # 计算模型参数量
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"模型总参数量: {total_params / 1e6:.2f}M")
+    print(f"{total_params / 1e6:.2f}M")
     
-    # 计算模型计算量
-    from thop import profile
-    input = torch.randn(32, 3, 224, 224).cuda()
-    flops, params = profile(model, inputs=(input,))
-    print(f"模型计算量: {flops / 1e9:.2f}G FLOPs")
-
-    # 前向传播耗时统计
-    model.train()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = model.to(device)
-    dummy_input = torch.randn(32, 3, 224, 224).to(device)
-    
-    # 预热GPU
-    for _ in range(10):
-        _ = model(dummy_input)
-    
-    # 计时100次前向传播平均耗时
-    forward_times = []
-    for _ in range(10):
-        start_time = time.perf_counter()
-        _ = model(dummy_input)
-        if device.type == 'cuda':
-            torch.cuda.synchronize()
-        forward_times.append(time.perf_counter() - start_time)
-    
-    avg_forward_time = sum(forward_times) / len(forward_times)
-    print(f"\n前向传播平均耗时(100次): {avg_forward_time:.4f} 秒")
-
-    # 反向传播耗时统计
-    dummy_input = torch.randn(32, 3, 224, 224).to(device)
-    dummy_target = torch.randint(0, 1000, (32,)).to(device)
-    
-    # 计时100次反向传播平均耗时
-    backward_times = []
-    for _ in range(10):
-        model.zero_grad()
-        output = model(dummy_input)
-        loss = F.cross_entropy(output, dummy_target)
-        
-        start_time = time.perf_counter()
-        loss.backward()
-        if device.type == 'cuda':
-            torch.cuda.synchronize()
-        backward_times.append(time.perf_counter() - start_time)
-    
-    avg_backward_time = sum(backward_times) / len(backward_times)
-    print(f"反向传播平均耗时(100次): {avg_backward_time:.4f} 秒")

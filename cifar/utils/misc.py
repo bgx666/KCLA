@@ -1,8 +1,3 @@
-'''Some helper functions for PyTorch, including:
-    - get_mean_and_std: calculate the mean and std value of dataset.
-    - msr_init: net parameter initialization.
-    - progress_bar: progress bar mimic xlua.progress.
-'''
 import errno
 import os
 import sys
@@ -57,9 +52,6 @@ def mkdir_p(path):
             raise
 
 class AverageMeter(object):
-    """Computes and stores the average and current value
-       Imported from https://github.com/pytorch/examples/blob/master/imagenet/main.py#L247-L262
-    """
     def __init__(self):
         self.reset()
 

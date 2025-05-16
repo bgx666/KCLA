@@ -5,12 +5,6 @@ from torch.nn.parameter import Parameter
 
 # from .eca_module import eca_layer
 class eca_layer(nn.Module):
-    """Constructs a ECA module.
-    Args:
-        channel: Number of channels of the input feature map
-        k_size: Adaptive selection of kernel size
-        source: https://github.com/BangguWu/ECANet
-    """
     def __init__(self, channel, k_size=3):
         super(eca_layer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)

@@ -120,15 +120,14 @@ class kcla_layer(nn.Module):
         cur_k_norm=torch.exp(torch.clamp(k_norm*self.norm_d, max=10))
     
         if u!=None:  
-            kvbinding = u+cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            u_next = u+cur_k_norm*x.view(b,self.heads,self.head,h,w)
             z = z+cur_k_norm
-            token_x=(kvbinding/z).view(b,c,h,w)
         else:
-            token_x=x
-            kvbinding=cur_k_norm*x.view(b,self.heads,self.head,h,w)
+            u_next=cur_k_norm*x.view(b,self.heads,self.head,h,w)
             z=cur_k_norm
 
-        V=self.Wv(token_x)
+
+        V=self.Wv((u_next/z).view(b,c,h,w))
         Q=Q.view(b,c//self.head,1,self.head) #[b, g, c/g, 1, 1, 1]
         K=K.view(b,c//self.head,1,self.head) #[b, g, c/g, 1, 1, 1]
         V=V.view(b,c//self.head,self.head,h,w)  # (b,g,1,c/g or dkey,h,w)   
@@ -139,7 +138,7 @@ class kcla_layer(nn.Module):
         output = output.view(b, c, h, w)
         output = self.drop_path(self.bn_attention(output))
 
-        return output,[kvbinding,cur_k_norm,z]
+        return output,[u_next,cur_k_norm,z]
 
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):

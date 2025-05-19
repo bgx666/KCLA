@@ -124,8 +124,6 @@ class kcla_layer(nn.Module):
         return output,[u_next,key_direction,z]
 
 
-
-
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
@@ -146,12 +144,6 @@ class DropPath(BaseModule):
         return drop_path(x, self.drop_prob, self.training)
 
 class eca_layer(BaseModule):
-    """Constructs a ECA module.
-    Args:
-        channel: Number of channels of the input feature map
-        k_size: Adaptive selection of kernel size
-        source: https://github.com/BangguWu/ECANet
-    """
     def __init__(self, channel, k_size=None):
         super(eca_layer, self).__init__()
         if k_size == None:
@@ -172,10 +164,7 @@ class eca_layer(BaseModule):
         y = self.sigmoid(y)
 
         return x * y.expand_as(x)
-    
-    
-# from .modules.se_module import se_layer
-# https://github.com/moskomule/senet.pytorch/blob/master/senet/se_module.py
+
 class se_layer(BaseModule):
     def __init__(self, channel, reduction=16):
         super(se_layer, self).__init__()
@@ -271,15 +260,6 @@ class Attention(BaseModule):
     def __init__(self, ModuleList, block_idx):
         super(Attention, self).__init__()
         self.layers, self.attention = ModuleList
-        # self.back = back
-        if block_idx == 1:
-            input_dim = 256
-        elif block_idx == 2:
-            input_dim =512
-        elif block_idx == 3:
-            input_dim=1024
-        elif block_idx == 4:
-            input_dim=2048
     def forward(self, x,info):
         for idx, (layer, attention) in enumerate(zip(self.layers, self.attention)):
             x, org = layer(x) 

@@ -51,7 +51,7 @@ class Up(nn.Module):
         self.conv = DoubleConv(in_channels, out_channels)
 
     def forward(self, x1, x2):
-        x1 = self.up(x1)        #尺寸相等
+        x1 = self.up(x1)  
         # input is CHW
         diffY = torch.tensor([x2.size()[2] - x1.size()[2]])
         diffX = torch.tensor([x2.size()[3] - x1.size()[3]])

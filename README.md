@@ -46,7 +46,7 @@ Move ./mmdet/models/backbones/resnet_kcla.py to the corresponding folder. Move t
 
 Download the COCO2017 dataset and place it under ./data/coco/.
 
-Then execute the following command for training:
+Then execute the following command for training (assuming two GPUs are available):
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 python tools/train.py configs/faster_rcnn/faster_rcnn_r50kcal_fpn_1x_coco.py --cfg-options data.samples_per_gpu=8

@@ -42,7 +42,9 @@ CUDA_VISIBLE_DEVICES=0,1 python train.py '/imagenet' -a resnet50_kcla -b 256 --e
 ### Train with Faster R-CNN and Mask R-CNN on COCO2017
 First, please configure the environment according to the official mmdetection documentation.
 
-Put the resnet_kcla.py file in this repository into the mmdetection/mmdet/models/backbones/ folder. For example, put the resnet_dlal.py file into the './mmdetection/mmdet/models/backbones/' folder. Put the configuration file into the './mmdetection/configs/faster_rcnn/' folder. For example, put the faster_rcnn_r50dlal_fpn_1x_coco.py file into the './mmdetection/configs/faster_rcnn/' folder.
+Move ./mmdet/models/backbones/resnet_kcla.py to the corresponding folder. Move the files under configs/faster_rcnn/ and configs/mask_rcnn/ to the corresponding folders. Move configs/_base_/models/faster_rcnn_r50_fpn.py and configs/_base_/models/mask_rcnn_r50_fpn.py to the corresponding folders.
+
+Download the COCO2017 dataset and place it under ./data/coco/.
 
 Then execute the following command for training:
 

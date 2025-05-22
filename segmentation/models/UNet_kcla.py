@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .kcla.kcla_forU import resnet18_kcla
+from kcla.kcla_forU import resnet18_kcla
 
 
 class DoubleConv(nn.Module):
@@ -77,7 +77,7 @@ class UNet_kcla(nn.Module):
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.bilinear = bilinear
-        self.encoder = resnet18_kcla(num_classes=n_classes, start_stage=1)
+        self.encoder = resnet18_kcla(num_classes=n_classes)
 
         # self.up1 = Up(1024, 256, bilinear)
         # self.up2 = Up(512, 128, bilinear)
@@ -103,7 +103,7 @@ class UNet_kcla(nn.Module):
         return  None,torch.sigmoid(logits)
 
 if __name__ == '__main__':
-    net = UNet(n_channels=3, n_classes=1).cuda()
+    net = UNet_kcla(n_channels=3, n_classes=1).cuda()
     from thop import profile
     dummy_input = torch.randn(1, 3, 256, 256).cuda()
     flops, params = profile(net, (dummy_input,))

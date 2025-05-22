@@ -284,3 +284,9 @@ def layer_attention(**kwargs):
     """
     return ResNet(**kwargs)
 
+if __name__ == '__main__':
+    import thop
+    input = torch.randn(1, 3, 32, 32)
+    model = layer_attention(depth=20, num_classes=100, block_name='BasicBlock', drop_path =0.0)
+    flops, params = thop.profile(model, inputs=(input, ))
+    print('flops: ', flops, 'params: ', params)

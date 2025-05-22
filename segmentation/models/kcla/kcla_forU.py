@@ -48,14 +48,13 @@ class kcla_layer(nn.Module):
             self.head= 16
             self.heads=in_channel//self.head
         
-        self.usegate=usegate
         self.sv_channel=sv_channel
+        self.init_layer=init_layer
         if self.init_layer and self.sv_channel!=None:
-            if self.conv_adjust:
-                self.adjust_channel=nn.Sequential(
-                    nn.Conv2d(sv_channel,in_channel,kernel_size=1,stride=stride,padding=0,groups=1),
-                    nn.BatchNorm2d(in_channel)
-                )
+            self.adjust_channel=nn.Sequential(
+                nn.Conv2d(sv_channel,in_channel,kernel_size=1,stride=stride,padding=0,groups=self.heads),
+                nn.BatchNorm2d(in_channel)
+            )
 
         self.drop_path=DropPath(drop_path)
         self._norm_fact = 1 / sqrt(self.head)
@@ -95,21 +94,17 @@ class kcla_layer(nn.Module):
 
         b,c,h,w=x.shape
         if self.init_layer and u is not None:
-            if self.cross_layer:
-                _b,_g,_head,_h,_w=u.shape
-                u=(u/z).view(_b,_g*_head,_h,_w)
-                if self.conv_adjust:
-                    u=self.adjust_channel(u)
-                else:
-                    u=self.avg_pool2(u).repeat_interleave(2,dim=1)
-                pre_k=self.Wk(self.avg_pool(u).view(b,1,c)).view(_b,self.heads,self.head,1,1)
-                pre_k_norm=torch.exp(torch.clamp(torch.norm(pre_k,p=2,dim=2,keepdim=True)*self.norm_d, max=10))
-                z=pre_k_norm
-                u=u.view(b,self.heads,self.head,h,w)*pre_k_norm
-            else:
-                u=None
-                pre_k_norm=None
-                z=None
+            _b,_g,_head,_h,_w=u.shape
+            u=(u/z).view(_b,_g*_head,_h,_w)
+            u=self.adjust_channel(u)
+            pre_k=self.Wk(self.avg_pool(u).view(b,1,c)).view(_b,self.heads,self.head,1,1)
+            pre_k_norm=torch.exp(torch.clamp(torch.norm(pre_k,p=2,dim=2,keepdim=True)*self.norm_d, max=10))
+            z=pre_k_norm
+            u=u.view(b,self.heads,self.head,h,w)*pre_k_norm
+        else:
+            u=None
+            pre_k_norm=None
+            z=None
 
         q = self.avg_pool(x) # [b, c, 1, 1]
         Q = self.Wq(q.view(b,1,c)) # Q: [b, 1, c]
@@ -362,7 +357,7 @@ class ResNet(nn.Module):
                                 norm_layer=norm_layer, drop_path=self.drop_path))
         for i in range(0, blocks):
             init_cell=True if i==0 else False
-            kcla.append(self.layer_attention(self.inplanes,inplanes,heads=None,init_layer=init_cell,stride=stride,padding=0,kernel_size=1,drop_path=0.2,cross_layer=True,conv_adjust=True,usegate=False))
+            kcla.append(self.layer_attention(self.inplanes,inplanes,heads=None,init_layer=init_cell,stride=stride,padding=0,kernel_size=1,drop_path=0.2))
         return nn.Sequential(*layers), nn.Sequential(*kcla)
 
     def forward_features(self, x):
@@ -385,14 +380,12 @@ class ResNet(nn.Module):
         x,info = self.layer4(x,info)
         self.layer_out.append(x)
 
-
         return x
     
     def forward(self, x):
         self.layer_out=[]
         x = self.forward_features(x)
         return self.layer_out
-
 
 
 def resnet50_kcla(**kwargs):

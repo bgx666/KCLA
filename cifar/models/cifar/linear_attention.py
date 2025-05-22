@@ -337,3 +337,9 @@ def linear_attention(**kwargs):
     """
     return ResNet(**kwargs)
 
+if __name__ == '__main__':
+    import thop
+    model = linear_attention(depth=20, num_classes=100, block_name='Bottleneck', drop_path=0.2)
+    input = torch.randn(1, 3, 32, 32)
+    flops, params = thop.profile(model, inputs=(input, ))
+    print(flops, params)
